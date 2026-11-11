@@ -1,0 +1,30 @@
+# Development-only stack: local listener, non-production credentials created by start-local.ps1.
+services:
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: ${DEMO_DB_PASSWORD:?Run start-local.ps1 to generate local credentials}
+      MARIADB_ROOT_PASSWORD: ${DEMO_ROOT_PASSWORD:?Run start-local.ps1 to generate local credentials}
+    volumes:
+      - demo_db:/var/lib/mysql
+  wordpress:
+    image: wordpress:php8.3-apache
+    restart: unless-stopped
+    depends_on: [db]
+    ports: ["127.0.0.1:8088:80"]
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${DEMO_DB_PASSWORD:?Run start-local.ps1 to generate local credentials}
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - demo_wp:/var/www/html
+      # Mount only distributable plugin files, never .env or local test/report files.
+      - ./community-workflow-demo.php:/var/www/html/wp-content/plugins/community-workflow-demo/community-workflow-demo.php:ro
+      - ./assets:/var/www/html/wp-content/plugins/community-workflow-demo/assets:ro
+volumes:
+  demo_db: {}
+  demo_wp: {}

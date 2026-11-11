@@ -1,0 +1,10 @@
+# Never commit generated local database credentials, CMS exports or runtime files.
+.env
+.env.*
+!.env.example
+*.sql
+*.sqlite
+*.sqlite3
+wp-content/
+__pycache__/
+.DS_Store

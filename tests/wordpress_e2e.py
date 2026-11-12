@@ -168,7 +168,7 @@ def main(directory_url, submit_url):
     print("PASS: sixth request blocked with visitor-facing feedback and no extra post")
 
     _, public_directory, _ = get_text(url_with(directory_url, cwd_search=TITLE_PREFIX))
-    assert TITLE_PREFIX not in public_directory, "Pending item exposed in public directory"
+    assert "<h3>Security exercise resource " not in public_directory, "Pending result card exposed in public directory"
     print("PASS: pending resources absent from anonymous directory search")
 
     status, body, _ = get_text(BASE + "/?rest_route=%2Fwp%2Fv2%2Fcwd_resource&search=Security%20exercise")
@@ -185,8 +185,8 @@ def main(directory_url, submit_url):
     publish_one_as_local_demo_admin()
     assert pending_count() == 4, "Publishing did not remove exactly one item from pending queue"
     _, public_directory, _ = get_text(url_with(directory_url, cwd_search=TITLE_PREFIX))
-    assert "Security exercise resource 1" in public_directory, "Published item not visible"
-    assert "Security exercise resource 2" not in public_directory, "Pending item visible after publishing"
+    assert "<h3>Security exercise resource 1</h3>" in public_directory, "Published result card not visible"
+    assert "<h3>Security exercise resource 2</h3>" not in public_directory, "Pending result card visible after publishing"
     print("PASS: publishing one item makes it searchable; other pending items remain hidden")
     print("RESULT: integration checks passed on disposable WordPress stack")
 

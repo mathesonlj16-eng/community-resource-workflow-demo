@@ -11,6 +11,8 @@ if (PHP_SAPI !== 'cli' || !getenv('TEST_ADMIN_PASSWORD')) {
 $_SERVER['HTTP_HOST'] = '127.0.0.1:8088';
 $_SERVER['SERVER_NAME'] = '127.0.0.1';
 $_SERVER['REQUEST_URI'] = '/';
+// WordPress otherwise exits wp-load.php before installation is complete.
+define('WP_INSTALLING', true);
 require '/var/www/html/wp-load.php';
 require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 require_once ABSPATH . 'wp-admin/includes/plugin.php';
@@ -27,6 +29,7 @@ wp_install(
     '',
     getenv('TEST_ADMIN_PASSWORD')
 );
+wp_installing(false);
 update_option('home', 'http://127.0.0.1:8088');
 update_option('siteurl', 'http://127.0.0.1:8088');
 $result = activate_plugin('community-workflow-demo/community-workflow-demo.php');

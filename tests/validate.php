@@ -5,7 +5,11 @@ define('HOUR_IN_SECONDS', 3600);
 $GLOBALS['cwd_test_transients'] = [];
 $GLOBALS['cwd_test_storage_ok'] = true;
 function wp_salt($scheme = '') { return 'test-only-wordpress-salt'; }
-function get_transient($key) { return $GLOBALS['cwd_test_transients'][$key] ?? false; }
+function get_transient($key) {
+    $stored = $GLOBALS['cwd_test_transients'][$key] ?? false;
+    // WordPress database-backed transients can return scalar values as strings.
+    return is_int($stored) ? (string) $stored : $stored;
+}
 function set_transient($key, $value, $expiry) {
     if (!$GLOBALS['cwd_test_storage_ok']) { return false; }
     $GLOBALS['cwd_test_transients'][$key] = $value;
@@ -57,6 +61,9 @@ for ($i = 1; $i <= 5; $i++) {
     check(cwd_reserve_submission_slot(), 'allow valid source slot ' . $i);
 }
 check(!cwd_reserve_submission_slot(), 'reject the sixth submission in the same source/hour');
+$corruptKey = cwd_submission_rate_key('192.0.2.10', time());
+$GLOBALS['cwd_test_transients'][$corruptKey] = 'not-a-number';
+check(!cwd_reserve_submission_slot(), 'reject corrupted nonnumeric transient counter');
 $_SERVER['REMOTE_ADDR'] = '192.0.2.11';
 check(cwd_reserve_submission_slot(), 'another source can still submit');
 $_SERVER['REMOTE_ADDR'] = '192.0.2.12';

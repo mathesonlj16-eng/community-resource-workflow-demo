@@ -29,7 +29,7 @@ Implementation caveats: WordPress transients are **not atomic counters**, may ex
 
 **F-03 — Dependency and infrastructure assurance (unresolved).** `wordpress:php8.3-apache` and `mariadb:11.4` are mutable image tags. No image vulnerability scan, dependency inventory, production backup recovery, TLS, firewall or restoration evidence was established by this review. The current Docker setup remains **local only**. Production security depends on vendor updates, host configuration, operational controls and documented ownership.
 
-**F-04 — Authorization and misuse tests (partially verified).** Disposable WordPress integration CI now verifies rendering of a guest nonce, invalid submission rejection, five pending submissions, sixth-attempt blocking, no pending content in public directory or normal REST collection, and denial of anonymous pending-status REST access. Publication was simulated from WordPress PHP CLI after verifying anonymous and demo-administrator capabilities, **not via a real authenticated HTTP admin session**. Earlier tests for every malformed field, cross-browser behaviour, concurrency and real staff login were not re-executed in this runtime suite.
+**F-04 — Authorization and misuse tests (expanded, bounded verification).** Disposable WordPress integration CI verifies rendering of a guest nonce, invalid submission rejection, five pending submissions, sixth-attempt blocking, no pending content in public directory or normal REST collection, and rejection of anonymous pending-status REST access. A real WordPress HTTP subscriber login was denied access to the editing screen; a real WordPress HTTP editor login could publish one resource via the authenticated REST API. A controlled eight-request burst was also run; **one successful burst does not establish atomicity**. Cross-browser accessibility, malicious/complex input classes, concurrent stress and production authentication configurations are not covered.
 
 ### Privacy implementation note
 
@@ -45,7 +45,7 @@ php -l seed-local.php
 php tests/validate.php
 ```
 
-**Test boundaries:** The stubbed test harness does **not** prove WordPress hook ordering, HTTP semantics or transient persistence; the separate disposable-stack integration checks cover selected real WordPress paths. Neither suite establishes concurrency correctness, production operations, anti-bot efficacy, authenticated HTTP admin workflow, or host security. Passing GitHub Actions does not certify the application.
+**Test boundaries:** The stubbed test harness does **not** prove WordPress hook ordering, HTTP semantics or transient persistence; disposable-stack integration checks cover selected real WordPress paths. Authenticated HTTP editor and subscriber sessions now have bounded coverage (login, edit permission and editor REST publication). No dedicated browser-click-through admin UI test was run. An eight-request concurrency characterization does **not** establish atomicity, race freedom, production operation, anti-bot efficacy or host security. Passing GitHub Actions does not certify the application.
 
 ### Executed disposable-stack integration evidence — November 12, 2026
 
@@ -70,4 +70,16 @@ php tests/validate.php
 
 The integration workflow (`.github/workflows/wordpress-integration.yml`) includes the exact disposable setup, PHP install step, fictional seed and `tests/wordpress_e2e.py` checks. It is preferable to rerun that workflow rather than test a client site. The provided local compose instructions must remain restricted to a disposable WordPress installation.
 
-Still **not verified:** concurrent submission bursts or distributed proxy behaviour; true HTTP admin login and permission enforcement with multiple roles; assistive-technology accessibility; spam protection at scale; production TLS, backups and disaster recovery; third-party plugin CVE and image scanning; privacy retention operations. A separate authorized test plan is required before any client-facing security claims.
+### Follow-up authenticated and concurrency checks — November 12, 2026
+
+**Revision:** [commit 0a88b7de](https://github.com/mathesonlj16-eng/community-resource-workflow-demo/commit/0a88b7deeec709c7b3d5f489783e25210e45c8c2).
+
+- [Disposable WordPress integration run 43317417132 — SUCCESS](https://github.com/mathesonlj16-eng/community-resource-workflow-demo/actions/runs/43317417132)
+- [PHP baseline run 43317417272 — SUCCESS](https://github.com/mathesonlj16-eng/community-resource-workflow-demo/actions/runs/43317417272)
+- WordPress installer created **editor and subscriber users with random, CI-only credentials**; cookies were used for real HTTP WordPress logins. The subscriber was denied access to the pending resource edit screen (HTTP). The editor authenticated and changed a single pending resource to published via the REST API with an authenticated session nonce. Other pending resources remained invisible.
+- In a **controlled eight-request concurrent burst** from the same CI environment, log evidence reported **five accepted, three limited, zero beyond five**; database-backed pending counts agreed with the returned HTTP outcomes. This is a characterization of **one** disposable-stack run. WordPress transient read/modify/write remains **non-atomic** and can overshoot under other schedules or when object-cache/traffic conditions differ.
+- The test reset **only disposable local quota transient records** before the concurrent burst. Do not run the fixture preparation or cleanup against a customer/production database. Runner volumes were removed after completion.
+
+**Still unverified:** high-concurrency stress and distributed proxy correctness, browser-driven admin publishing UI, multiple browser engines, accessibility with assistive technologies, spam protection at scale, production TLS, backup restoration, third-party plugin CVE and container-image security scanning, incident response, and privacy retention operations. A separate authorized plan is required before client-facing security or compliance claims.
+
+**Review decision:** the source changes are suitable for **portfolio demonstration and further engineering review**, not as a production-ready security control or standalone cybersecurity service. Keep this PR draft/unmerged until owner review.

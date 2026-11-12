@@ -55,6 +55,33 @@ function cwd_https_link(string $raw): string {
 
 function cwd_length(string $s): int { return function_exists('mb_strlen') ? mb_strlen($s) : strlen($s); }
 
+// Best-effort, per-source-IP hourly quota. Use the web server's direct peer address only;
+// never trust caller-provided X-Forwarded-For headers. Keys are HMACs, not raw IPs.
+function cwd_submission_rate_key(string $ip, int $now): string {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) { $ip = 'unknown'; }
+    $hour = intdiv(max(0, $now), HOUR_IN_SECONDS);
+    return 'cwd_rl_' . substr(hash_hmac('sha256', $hour . '|' . $ip, wp_salt('nonce')), 0, 40);
+}
+
+/**
+ * Reserve one of five slots per IP/hour. Transients are not atomic under concurrency
+ * and may be evicted early: this reduces casual spam, not a production abuse guarantee.
+ * Fail closed when transient storage cannot record the reservation.
+ */
+function cwd_reserve_submission_slot(): bool {
+    $ip = isset($_SERVER['REMOTE_ADDR']) && is_string($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
+    $key = cwd_submission_rate_key($ip, time());
+    $count = get_transient($key);
+    if ($count === false) { $count = 0; }
+    // Database-backed WordPress transients return scalar integers as numeric strings.
+    // Reject malformed or corrupted values instead of coercing arbitrary objects.
+    if (is_string($count) && preg_match('/^[0-9]{1,2}$/D', $count)) {
+        $count = (int) $count;
+    }
+    if (!is_int($count) || $count < 0 || $count >= 5) { return false; }
+    return set_transient($key, $count + 1, HOUR_IN_SECONDS) === true;
+}
+
 /** A pure, separately testable validator. Return an error string or normalized fields. */
 function cwd_validate_submission(array $input) {
     foreach (['title', 'description', 'topic', 'link'] as $field) {
@@ -135,6 +162,7 @@ function cwd_submission_shortcode(): string {
     if ($result === 'received') { echo '<p class="cwd-feedback" role="status">Thanks. Your suggestion is pending staff review.</p>'; }
     elseif ($result === 'invalid') { echo '<p class="cwd-feedback" role="alert">Use a 5–100 character title, a 15–900 character description, an available topic and an optional HTTPS link without credentials.</p>'; }
     elseif ($result === 'error') { echo '<p class="cwd-feedback" role="alert">The suggestion could not be saved. Try again later.</p>'; }
+    elseif ($result === 'limited') { echo '<p class="cwd-feedback" role="alert">Too many suggestions from this connection right now. Try again later.</p>'; }
     echo '<form action="' . esc_url(admin_url('admin-post.php')) . '" method="post">';
     echo '<input type="hidden" name="action" value="cwd_submit">';
     wp_nonce_field('cwd_submit', 'cwd_nonce');
@@ -170,6 +198,9 @@ function cwd_handle_submission(): void {
     if (!is_array($data)) { cwd_redirect_result('invalid'); }
     $topic = $data['topic'] === '' ? null : get_term_by('slug', $data['topic'], 'cwd_topic');
     if ($topic === false) { cwd_redirect_result('invalid'); }
+
+    // Check only structurally valid suggestions before creating any new pending post.
+    if (!cwd_reserve_submission_slot()) { cwd_redirect_result('limited'); }
 
     // Anonymous submissions always remain pending. Only authorized WP editors may publish.
     $id = wp_insert_post([

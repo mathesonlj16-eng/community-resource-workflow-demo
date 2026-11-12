@@ -1,0 +1,26 @@
+name: PHP security baseline checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  php-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Display PHP version
+        run: php -v
+      - name: Lint plugin and seed
+        run: |
+          php -l community-workflow-demo.php
+          php -l seed-local.php
+          php -l tests/validate.php
+      - name: Exercise bounded validation and rate-limit stubs
+        run: php tests/validate.php

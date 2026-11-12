@@ -37,8 +37,14 @@ jobs:
         run: |
           set -euo pipefail
           TEST_ADMIN_PASSWORD="$(openssl rand -hex 32)"
-          export TEST_ADMIN_PASSWORD
-          docker compose exec -T -e TEST_ADMIN_PASSWORD="$TEST_ADMIN_PASSWORD" wordpress php < tests/wp-install.php
+          TEST_EDITOR_PASSWORD="$(openssl rand -hex 32)"
+          TEST_SUBSCRIBER_PASSWORD="$(openssl rand -hex 32)"
+          export TEST_ADMIN_PASSWORD TEST_EDITOR_PASSWORD TEST_SUBSCRIBER_PASSWORD
+          docker compose exec -T \
+            -e TEST_ADMIN_PASSWORD="$TEST_ADMIN_PASSWORD" \
+            -e TEST_EDITOR_PASSWORD="$TEST_EDITOR_PASSWORD" \
+            -e TEST_SUBSCRIBER_PASSWORD="$TEST_SUBSCRIBER_PASSWORD" \
+            wordpress php < tests/wp-install.php
           docker compose exec -T wordpress php < seed-local.php > "$RUNNER_TEMP/seed-urls.txt"
           cat "$RUNNER_TEMP/seed-urls.txt"
           directory_url="$(sed -n '1p' "$RUNNER_TEMP/seed-urls.txt" | tr -d '\r')"

@@ -41,4 +41,23 @@ if (!post_type_exists('cwd_resource')) {
     fwrite(STDERR, "Plugin activation did not register cwd_resource.\n");
     exit(1);
 }
+
+foreach ([
+    ['security_demo_editor', 'TEST_EDITOR_PASSWORD', 'editor'],
+    ['security_demo_subscriber', 'TEST_SUBSCRIBER_PASSWORD', 'subscriber'],
+] as [$username, $passwordKey, $role]) {
+    $password = getenv($passwordKey);
+    if (!is_string($password) || strlen($password) < 20) {
+        fwrite(STDERR, "Missing secure disposable password for $role.\n");
+        exit(1);
+    }
+    $userId = wp_create_user($username, $password, $username . '@example.invalid');
+    if (is_wp_error($userId)) {
+        fwrite(STDERR, "Could not create disposable $role user.\n");
+        exit(1);
+    }
+    $user = new WP_User($userId);
+    $user->set_role($role);
+}
+echo "Disposable role fixtures created (editor and subscriber).\n";
 echo "Disposable WordPress installation and plugin activation completed.\n";

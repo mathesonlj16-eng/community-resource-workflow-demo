@@ -5,13 +5,16 @@ Usage: python3 tests/wordpress_e2e.py DIRECTORY_URL SUBMISSION_URL
 No third-party hosts, credential reuse, or public scanning is supported.
 """
 import json
+import os
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from http.cookiejar import CookieJar
 from html.parser import HTMLParser
 from urllib.error import HTTPError
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor
 
 
 BASE = "http://127.0.0.1:8088"
@@ -81,7 +84,7 @@ def pending_count():
     return int(match.group(1))
 
 
-def post_submission(form, fields, expected_result):
+def post_submission(form, fields, expected_result=None):
     action_url = form["action"]
     ensure_local(action_url)
     payload = dict(form["fields"])
@@ -96,35 +99,115 @@ def post_submission(form, fields, expected_result):
         destination = response.url
         body = response.read().decode("utf-8")
     result = dict(parse_qsl(urlsplit(destination).query)).get("cwd_result")
-    assert result == expected_result, f"Expected {expected_result}, got {result} ({destination})"
+    if expected_result is not None:
+        assert result == expected_result, f"Expected {expected_result}, got {result} ({destination})"
     if result == "limited":
         assert "Too many suggestions" in body, "Limit feedback not shown to visitor"
+    return result
 
 
-def publish_one_as_local_demo_admin():
-    code = """
-$posts = get_posts([
-    'post_type' => 'cwd_resource', 'post_status' => 'pending',
-    'numberposts' => 20,
-]);
-$target = null;
-foreach ($posts as $post) {
-    if ($post->post_title === 'Security exercise resource 1') { $target = $post; break; }
+def login_demo_user(username, password_env):
+    password = os.environ.get(password_env, "")
+    assert len(password) >= 20, "Missing temporary role-fixture password"
+    jar = CookieJar()
+    opener = build_opener(HTTPCookieProcessor(jar))
+    login_url = BASE + "/wp-login.php"
+    with opener.open(login_url, timeout=20) as response:
+        assert response.status == 200, "WordPress login page unavailable"
+    data = urlencode({
+        "log": username,
+        "pwd": password,
+        "wp-submit": "Log In",
+        "redirect_to": BASE + "/wp-admin/",
+        "testcookie": "1",
+    }).encode("utf-8")
+    request = Request(
+        login_url,
+        data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded", "Referer": login_url},
+        method="POST",
+    )
+    with opener.open(request, timeout=20) as response:
+        destination = response.url
+    assert destination.startswith(BASE + "/wp-admin"), "WordPress authentication failed"
+    assert any("wordpress_logged_in_" in c.name for c in jar), "No WordPress login session cookie issued"
+    return opener
+
+
+def test_roles_and_publish_via_authenticated_http():
+    output = wp_php("""
+$matches = get_posts(['post_type'=>'cwd_resource','post_status'=>'pending','numberposts'=>10]);
+foreach ($matches as $post) {
+    if ($post->post_title === 'Security exercise resource 1') {
+        echo 'TARGET_ID=' . (int)$post->ID . PHP_EOL;
+        break;
+    }
 }
-if (!$target) { fwrite(STDERR, "Target post not found\\n"); exit(2); }
-wp_set_current_user(0);
-if (current_user_can('publish_posts')) { exit(3); }
-$admin = get_user_by('login', 'security_demo_admin');
-if (!$admin) { exit(4); }
-wp_set_current_user($admin->ID);
-if (!current_user_can('publish_posts') || !current_user_can('edit_post', $target->ID)) { exit(5); }
-$result = wp_update_post(['ID' => $target->ID, 'post_status' => 'publish'], true);
-if (is_wp_error($result)) { exit(6); }
-echo 'LOCAL_DEMO_PUBLISHED=' . (int) $result . PHP_EOL;
-"""
-    output = wp_php(code)
-    assert re.search(r"LOCAL_DEMO_PUBLISHED=\d+", output), "Publish result absent"
-    print("PASS: unauthenticated WordPress context denied publish capability; local demo admin published one item (PHP CLI, not HTTP login)")
+""")
+    match = re.search(r"TARGET_ID=(\d+)", output)
+    assert match, "Could not find disposable pending record"
+    target_id = int(match.group(1))
+    edit_url = BASE + "/wp-admin/post.php?post=" + str(target_id) + "&action=edit"
+
+    subscriber = login_demo_user("security_demo_subscriber", "TEST_SUBSCRIBER_PASSWORD")
+    try:
+        with subscriber.open(edit_url, timeout=20) as response:
+            failure_content = response.read().decode("utf-8")
+            raise AssertionError("Subscriber received edit screen (HTTP " + str(response.status) + "): " + str(len(failure_content)) + " bytes")
+    except HTTPError as error:
+        assert error.code in (401, 403), "Unexpected subscriber edit response: " + str(error.code)
+    print("PASS: real HTTP subscriber session denied WordPress edit screen")
+
+    editor = login_demo_user("security_demo_editor", "TEST_EDITOR_PASSWORD")
+    with editor.open(edit_url, timeout=20) as response:
+        assert response.status == 200 and response.url.startswith(BASE + "/wp-admin/"), "Editor edit page unavailable"
+        page = response.read().decode("utf-8")
+    assert "Security exercise resource 1" in page, "Editor did not receive pending record edit screen"
+    candidates = [
+        re.search(r'wpApiSettings\s*=\s*\{[^\n]{0,3000}?"nonce"\s*:\s*"([A-Za-z0-9]+)"', page),
+        re.search(r'createNonceMiddleware\(\s*["\x27]([A-Za-z0-9]+)["\x27]', page),
+    ]
+    nonce = next((m.group(1) for m in candidates if m), None)
+    assert nonce, "No REST nonce could be located in authenticated editor screen"
+    url = BASE + "/?rest_route=%2Fwp%2Fv2%2Fcwd_resource%2F" + str(target_id)
+    req = Request(
+        url,
+        data=json.dumps({"status": "publish"}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "X-WP-Nonce": nonce},
+        method="POST",
+    )
+    with editor.open(req, timeout=20) as response:
+        assert response.status == 200, "Authenticated WordPress REST publication failed"
+        result = json.loads(response.read().decode("utf-8"))
+    assert result.get("status") == "publish" and result.get("id") == target_id, "REST response did not confirm publication"
+    print("PASS: authenticated WordPress HTTP editor session published exactly one pending record")
+
+
+def characterize_concurrent_submissions(form):
+    # Test-only, disposable database! Clear just this demo's transient quota records
+    # so the concurrent burst begins from an unused bucket. Never run on a real site.
+    wp_php("""
+global $wpdb;
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_cwd_rl_%' OR option_name LIKE '_transient_timeout_cwd_rl_%'");
+""")
+    before = pending_count()
+
+    def send(index):
+        return post_submission(form, {
+            "cwd_title": "Concurrent fictional suggestion " + str(index),
+            "cwd_description": "Synthetic concurrency characterization only; no client data.",
+            "cwd_topic": "training",
+        })
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(send, range(1, 9)))
+    accepted = outcomes.count("received")
+    limited = outcomes.count("limited")
+    assert accepted + limited == len(outcomes), "Unexpected concurrent HTTP outcome: " + repr(outcomes)
+    assert pending_count() - before == accepted, "Concurrent response counts differ from committed pending posts"
+    # Not a correctness claim: get_transient/set_transient is NOT atomic. Report
+    # overshoot rather than falsely requiring <=5 or hiding a real race.
+    print(f"PASS: controlled 8-request burst had {accepted} accepted, {limited} limited, "
+          f"{max(0, accepted - 5)} beyond five (non-atomic best-effort control)")
 
 
 def main(directory_url, submit_url):
@@ -190,12 +273,13 @@ def main(directory_url, submit_url):
     else:
         raise AssertionError("Anonymous REST user could access pending resources")
 
-    publish_one_as_local_demo_admin()
+    test_roles_and_publish_via_authenticated_http()
     assert pending_count() == 4, "Publishing did not remove exactly one item from pending queue"
     _, public_directory, _ = get_text(url_with(directory_url, cwd_search=TITLE_PREFIX))
     assert "<h3>Security exercise resource 1</h3>" in public_directory, "Published result card not visible"
     assert "<h3>Security exercise resource 2</h3>" not in public_directory, "Pending result card visible after publishing"
     print("PASS: publishing one item makes it searchable; other pending items remain hidden")
+    characterize_concurrent_submissions(form)
     print("RESULT: integration checks passed on disposable WordPress stack")
 
 

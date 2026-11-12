@@ -73,6 +73,11 @@ function cwd_reserve_submission_slot(): bool {
     $key = cwd_submission_rate_key($ip, time());
     $count = get_transient($key);
     if ($count === false) { $count = 0; }
+    // Database-backed WordPress transients return scalar integers as numeric strings.
+    // Reject malformed or corrupted values instead of coercing arbitrary objects.
+    if (is_string($count) && preg_match('/^[0-9]{1,2}$/D', $count)) {
+        $count = (int) $count;
+    }
     if (!is_int($count) || $count < 0 || $count >= 5) { return false; }
     return set_transient($key, $count + 1, HOUR_IN_SECONDS) === true;
 }

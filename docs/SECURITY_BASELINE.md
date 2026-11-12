@@ -29,7 +29,7 @@ Implementation caveats: WordPress transients are **not atomic counters**, may ex
 
 **F-03 — Dependency and infrastructure assurance (unresolved).** `wordpress:php8.3-apache` and `mariadb:11.4` are mutable image tags. No image vulnerability scan, dependency inventory, production backup recovery, TLS, firewall or restoration evidence was established by this review. The current Docker setup remains **local only**. Production security depends on vendor updates, host configuration, operational controls and documented ownership.
 
-**F-04 — Authorization and misuse tests (incomplete).** The demo's original verification record reports checks for nonces, unknown topics, guest/pending visibility and staff publishing. Those earlier checks have not been independently re-executed for this security branch. Perform an explicit local WordPress retest before claiming the new behavior works in a running CMS.
+**F-04 — Authorization and misuse tests (partially verified).** Disposable WordPress integration CI now verifies rendering of a guest nonce, invalid submission rejection, five pending submissions, sixth-attempt blocking, no pending content in public directory or normal REST collection, and denial of anonymous pending-status REST access. Publication was simulated from WordPress PHP CLI after verifying anonymous and demo-administrator capabilities, **not via a real authenticated HTTP admin session**. Earlier tests for every malformed field, cross-browser behaviour, concurrency and real staff login were not re-executed in this runtime suite.
 
 ### Privacy implementation note
 
@@ -37,7 +37,7 @@ Rate-limit transient keys use HMAC-SHA256 derived from validated server-observed
 
 ## Repeatable validation
 
-CI performs PHP lint for the two PHP entrypoints and the PHP stubbed validation suite. The unit harness tests accepted/rejected field shapes, link validation, deterministic hashed quota keys, different source buckets, five permitted slots, sixth rejection, and failure-closed storage.
+The **PHP security baseline checks** workflow runs PHP lint and the stubbed validation suite. The unit harness tests accepted/rejected field shapes, link validation, deterministic hashed quota keys, different source buckets, five permitted slots, sixth rejection, failure-closed storage and invalid counter rejection. The **Disposable WordPress integration** workflow starts an isolated localhost-only WordPress + MariaDB stack, creates random demo-only secrets, performs actual HTTP submissions and reads database-backed pending counts.
 
 ```sh
 php -l community-workflow-demo.php
@@ -45,20 +45,29 @@ php -l seed-local.php
 php tests/validate.php
 ```
 
-**Test boundaries:** The stubbed test harness does **not** prove WordPress hook ordering, HTTP semantics, transient persistence, real moderation permissions, concurrency correctness, security posture of the host, or actual anti-bot efficacy. A passing GitHub Actions job means those specific lint/stub checks ran; it does not certify the application.
+**Test boundaries:** The stubbed test harness does **not** prove WordPress hook ordering, HTTP semantics or transient persistence; the separate disposable-stack integration checks cover selected real WordPress paths. Neither suite establishes concurrency correctness, production operations, anti-bot efficacy, authenticated HTTP admin workflow, or host security. Passing GitHub Actions does not certify the application.
 
-### Next authorized local end-to-end test
+### Executed disposable-stack integration evidence — November 12, 2026
 
-1. Start a clean local Docker stack using the README instructions; use only fictional content and demo-only credentials.
-2. Submit a valid resource five times from a single local client; confirm five *Pending* posts only.
-3. Send a sixth valid submission; confirm a rate-limit message and no sixth post.
-4. Verify invalid submissions do not increment the quota, and pending posts are inaccessible to anonymous directory and REST listing.
-5. Verify editor publishing permissions and safe link validation still work.
-6. Check error paths, accessibility feedback, and unexpected object-cache behavior; inspect server and PHP logs without publishing credentials or addresses.
-7. Capture date, environment version, exact commands, observed counts, failures, and reviewer notes. Do not claim these tests passed before running them.
+- **Source revision:** [commit c5960437](https://github.com/mathesonlj16-eng/community-resource-workflow-demo/commit/c5960437fe9221c286aafd53824a595553be5cb0)
+- **WordPress HTTP integration:** [GitHub Actions run 43314340274 — succeeded](https://github.com/mathesonlj16-eng/community-resource-workflow-demo/actions/runs/43314340274)
+- **PHP lint and stubbed validation:** [GitHub Actions run 43314340307 — succeeded](https://github.com/mathesonlj16-eng/community-resource-workflow-demo/actions/runs/43314340307)
+- **Environment:** disposable GitHub-hosted Ubuntu runner, Docker Compose localhost listener, official WordPress PHP 8.3 Apache image and MariaDB 11.4 image; random demonstration credentials, fictional records; containers and volumes deleted after execution.
 
-## Candidate service (not offered as a certified assessment)
+**Observed checks recorded in the successful integration job:**
 
-For a small nonprofit WordPress site, a future fixed-scope service could include backups and restore verification, account/MFA configuration review, plugin/theme patch inventory, form hardening, role review and a remediation change log. **Requires** written site-owner authorization, defined access and backup scope, safe staging, insurance review, and explicit exclusions. No vulnerability scanning or intrusive testing of clients without authorization.
+1. Public submission form rendered a nonce, with zero pending posts at baseline.
+2. Invalid form submission was rejected without creating a pending record.
+3. Five valid HTTP submissions created exactly five pending records.
+4. Sixth HTTP submission received a limit response and created no additional record.
+5. Anonymous directory search and the normal REST collection omitted all pending resources.
+6. Anonymous `status=pending` REST query returned **HTTP 400** with error code `rest_invalid_param` and exposed no pending resource content. This is input validation, **not evidence of a particular authentication error**.
+7. Anonymous WordPress PHP context lacked the publish capability; a **local CLI demo-admin context** published one pending resource. That record appeared in search while four others remained pending. This is not a browser login or authenticated HTTP admin test.
 
-**Commercial tracking:** [Business-Operations CYBER-01](https://github.com/mathesonlj16-eng/Business-Operations/issues/35).
+**Investigation notes:** An initial real WordPress run exposed that DB-backed transients can read back an integer counter as a numeric *string*. The initial implementation incorrectly blocked the second valid submission. It was corrected to accept bounded numeric-string counters and the stub unit tests were updated to emulate the actual storage behavior. Subsequent test assertion corrections restricted directory leak checks to rendered resource cards rather than the search form's echoed query; no pending-card leak was established.
+
+### Remaining coverage / reproducibility
+
+The integration workflow (`.github/workflows/wordpress-integration.yml`) includes the exact disposable setup, PHP install step, fictional seed and `tests/wordpress_e2e.py` checks. It is preferable to rerun that workflow rather than test a client site. The provided local compose instructions must remain restricted to a disposable WordPress installation.
+
+Still **not verified:** concurrent submission bursts or distributed proxy behaviour; true HTTP admin login and permission enforcement with multiple roles; assistive-technology accessibility; spam protection at scale; production TLS, backups and disaster recovery; third-party plugin CVE and image scanning; privacy retention operations. A separate authorized test plan is required before any client-facing security claims.

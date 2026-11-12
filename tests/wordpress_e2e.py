@@ -177,10 +177,18 @@ def main(directory_url, submit_url):
     try:
         get_text(BASE + "/?rest_route=%2Fwp%2Fv2%2Fcwd_resource&status=pending")
     except HTTPError as error:
-        assert error.code in (401, 403), f"Unexpected pending REST response: {error.code}"
+        # Depending on the WordPress REST controller, anonymous status=pending
+        # can be rejected at parameter validation (400) or capability check (401/403).
+        assert error.code in (400, 401, 403), f"Unexpected pending REST response: {error.code}"
+        failure_body = error.read().decode("utf-8")
+        error_json = json.loads(failure_body)
+        assert isinstance(error_json, dict) and error_json.get("code"), "REST error object missing"
+        assert TITLE_PREFIX not in failure_body, "Pending resource data leaked in REST error"
+        if error.code == 400:
+            assert error_json["code"] == "rest_invalid_param", "Unexpected anonymous REST validation failure"
+        print(f"PASS: anonymous pending-status REST request rejected (HTTP {error.code}, {error_json['code']})")
     else:
         raise AssertionError("Anonymous REST user could access pending resources")
-    print("PASS: anonymous REST pending-status request denied")
 
     publish_one_as_local_demo_admin()
     assert pending_count() == 4, "Publishing did not remove exactly one item from pending queue"

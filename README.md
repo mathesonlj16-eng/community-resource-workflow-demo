@@ -1,6 +1,6 @@
 # Community Resource Hub
 
-**Independent WordPress workflow demo using fictional content.** A community team can maintain a searchable directory and review public suggestions in WordPress before adding them to the directory.
+**Independent WordPress workflow demo using fictional content. WordPress plugin · PHP 8.3 · Docker Compose · MariaDB** A community team can maintain a searchable directory and review public suggestions in WordPress before adding them to the directory.
 
 - **Find useful guides.** Search published resources by keyword, narrow by topic, and clear filters from the same page.
 - **Collect suggestions.** An anonymous visitor can suggest a fictional resource and receive a confirmation that it is pending.
@@ -34,7 +34,7 @@ The images show Edge Chromium connected to the local Docker WordPress instance w
 
 `community-workflow-demo.php` registers a resource type and topic taxonomy, two frontend shortcodes, and a POST handler. It uses WordPress capabilities for staff publishing. It checks the submission nonce, sanitizes text, validates existing topic slugs and HTTPS links without credentials, and escapes output. It uses a redirect after POST and keeps the page URL in directory filters under plain permalinks. `assets/style.css` styles the shortcodes and the active theme supplies page layout. `seed-local.php` creates the fictional walkthrough data without changing plugin activation behavior.
 
-For PHP checks, run `php -l community-workflow-demo.php`, `php -l seed-local.php` and `php tests/validate.php` with PHP 8+. The validation harness uses small WordPress stubs. The runtime checks used Docker Compose, WordPress 7.1.4, PHP 8.3 and Edge Chromium on Windows. See [standalone test evidence and known coverage limits](docs/VERIFICATION.md) for the executed validation and WordPress runtime checks.
+For PHP checks, run `php -l community-workflow-demo.php`, `php -l seed-local.php` and `php tests/validate.php` with PHP 8+. The validation harness uses small WordPress stubs. The runtime checks used Docker Compose, WordPress (php8.3-apache image), PHP 8.3 and Edge Chromium on Windows. See [standalone test evidence and known coverage limits](docs/VERIFICATION.md) for the executed validation and WordPress runtime checks.
 
 ## Scope and license
 

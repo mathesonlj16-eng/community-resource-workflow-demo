@@ -4,7 +4,7 @@
 
 ## Reported completed runtime checks
 
-The project was run on Windows with Docker Desktop, WordPress **7.1.4**, PHP **8.3.36**, and Edge Chromium. The original evaluator reported:
+The project was run on Windows with Docker Desktop, WordPress (php8.3-apache image), PHP **8.3.36**, and Edge Chromium. The original evaluator reported:
 - PowerShell `start-local.ps1` bootstrap and Docker Compose config inspection passed on a fresh local stack
 - PHP lint for `community-workflow-demo.php` and `seed-local.php` passed
 - `php tests/validate.php` passed **12** assertions on input validation and rejection paths
